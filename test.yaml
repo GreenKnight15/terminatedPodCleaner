@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test
+  labels:
+    app: test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: test
+  template:
+    metadata:
+      labels:
+        app: test
+    spec:
+      containers:
+      - name: test
+        image: test/examples:1.2
+        command: ["/bin/sh","-c"]
+        args: ["java -jar /terminatedPodCleaner.jar","while :; do  sleep 1; done"]
