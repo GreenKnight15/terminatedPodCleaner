@@ -17,18 +17,20 @@ import java.util.concurrent.*;
 public class PodWatcher {
 
     private static Watch<V1Pod> watch;
-    private static ApiClient client;
     private static CoreV1Api api;
-    private static ExecutorService executorService = Executors.newFixedThreadPool(100);
-    private  static Map<String, Future> terminatingPods = new HashMap<>();
+    private static final ExecutorService executorService = Executors.newFixedThreadPool(100);
+    private static final Map<String, Future> terminatingPods = new HashMap<>();
 
-    public static void main(String[] args) throws IOException, ApiException{
+    public static void main(String[] args) throws ApiException{
         try {
+            //Set for local development
+            //TODO Use env var or arg to set how the client in initialized
             boolean inCluster = false;
+            ApiClient client;
             if (inCluster) {
                 client = Config.fromCluster();
             } else {
-                client = Config.fromConfig("C:/Users/James/.kube/config");
+                client = Config.fromConfig(System.getenv("USERPROFILE")+"/.kube/config");
             }
             client.getHttpClient().setReadTimeout(0, TimeUnit.MILLISECONDS);
             Configuration.setDefaultApiClient(client);
@@ -44,48 +46,40 @@ public class PodWatcher {
         }
     }
 
-    public static Runnable podWatchTask = new Runnable() {
+    private static final Runnable podWatchTask = new Runnable() {
         @Override
         public void run() {
             for (Watch.Response<V1Pod> item : watch) {
                 V1PodStatus podStatus = item.object.getStatus();
                 String name = item.object.getMetadata().getName();
-                String status = podStatus.getPhase();
-                String kind = item.object.getKind();
-                String details = podStatus.toString();
-                String phase = podStatus.getPhase();
                 boolean isTerminating = item.object.getMetadata().getDeletionTimestamp() != null;
-                details = "";
-                if(isTerminating) {
 
-                    if(!terminatingPods.containsKey(name)) {
-                        Future f = executorService.submit(new doStuff(name));
-                        terminatingPods.put(name,f);
-                        System.out.printf("%nPending Termination: %s",name);
+                if(isTerminating && !terminatingPods.containsKey(name)) {
+                    Future f = executorService.submit(new doStuff(name));
+                    terminatingPods.put(name,f);
+                    System.out.printf("%nPending Termination: %s",name);
+                }
+
+                if(item.type.equals("DELETED")){
+                    System.out.printf("%nCancel pending termination: %s",name);
+                    Future f = terminatingPods.get(name);
+                    if(f != null) {
+                        f.cancel(true);
+                        System.out.printf("%nIs future terminated?: %s", f.isCancelled());
+                        terminatingPods.remove(name);
+                        System.out.printf("%n%s REMOVED from queue", name);
+                        System.out.printf("%nDELETE ME: %s", terminatingPods.keySet().toString());
                     }
                 }
-                switch (item.type) {
-                        case "DELETED":
-                            System.out.printf("%nCancel pending termination: %s",name);
-                            Future f = terminatingPods.get(name);
-                            if(f != null) {
-                                f.cancel(true);
-                                System.out.printf("%nIs future terminated?: %s", f.isCancelled());
-                                terminatingPods.remove(name);
-                                System.out.printf("%n%s REMOVED from queue", name);
-                                System.out.printf("%nDELETE ME: %s", terminatingPods.keySet().toString());
-                            }
-                            break;
-                }
-            };
+            }
         }
     };
 
-    static class doStuff implements Runnable {
+    private static class doStuff implements Runnable {
         private boolean stop = false;
         private final String podName;
 
-        public doStuff(String podName) {
+        private doStuff(String podName) {
             this.podName = podName;
         }
 
@@ -104,9 +98,7 @@ public class PodWatcher {
                 }
                 current = Calendar.getInstance();
             }
-            if(stop) {
-                return;
-            } else {
+            if(!stop) {
                 System.out.printf("%nTimes up, force delete %s", podName);
                 this.stop = true;
                 try {
