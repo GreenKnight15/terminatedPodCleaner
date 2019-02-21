@@ -9,5 +9,4 @@ Cleans up pods stuck terminating after a set amount of time
 - `REQUIRE_LABEL` Required labels to watch, default all labels
 
 #### TODO ####
-- Add logger 
-- Use env var or arg to set values
+1. 
